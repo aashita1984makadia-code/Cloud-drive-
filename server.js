@@ -1,0 +1,15 @@
+require("dotenv").config();
+const express=require("express"),http=require("http"),path=require("path"),fs=require("fs"),cookieParser=require("cookie-parser"),helmet=require("helmet"),cors=require("cors"),rateLimit=require("express-rate-limit"),{Server}=require("socket.io");
+const connect=require("./src/config/db"),storage=require("./src/services/storage");
+const auth=require("./src/routes/auth"),api=require("./src/routes/api"),share=require("./src/routes/share");
+const app=express(),server=http.createServer(app),io=new Server(server,{cors:{origin:true,credentials:true}});
+storage.ensure(); ["users","thumbnails","temporary"].forEach(x=>fs.mkdirSync(path.join(storage.root,x),{recursive:true}));
+app.set("io",io); app.use(helmet({contentSecurityPolicy:false})); app.use(cors({origin:true,credentials:true})); app.use(express.json({limit:"10mb"}));app.use(express.urlencoded({extended:true}));app.use(cookieParser());
+app.use("/api/auth",rateLimit({windowMs:15*60*1000,max:300}),auth);
+app.use("/api",rateLimit({windowMs:15*60*1000,max:1000}),api);
+app.use("/share",share);
+app.use(express.static(path.join(__dirname,"public")));
+app.get("*",(req,res)=>res.sendFile(path.join(__dirname,"public","index.html")));
+app.use((err,req,res,next)=>{console.error(err);res.status(err.status||500).json({success:false,message:process.env.NODE_ENV==="production"?"Request failed":err.message})});
+io.on("connection",socket=>{socket.on("join-user",id=>socket.join("user:"+id));});
+connect().then(()=>server.listen(process.env.PORT||3000,()=>console.log(`CloudDrive running on ${process.env.PORT||3000}`))).catch(e=>{console.error(e);process.exit(1)});
